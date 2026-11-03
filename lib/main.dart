@@ -103,6 +103,16 @@ class AppDb {
   }
 }
 
+String normalizeDigits(String value) {
+  const fa = '۰۱۲۳۴۵۶۷۸۹';
+  const ar = '٠١٢٣٤٥٦٧٨٩';
+  var result = value;
+  for (var i = 0; i < 10; i++) {
+    result = result.replaceAll(fa[i], '$i').replaceAll(ar[i], '$i');
+  }
+  return result.replaceAll(',', '').replaceAll('٬', '').replaceAll('،', '').trim();
+}
+int? parseAmount(String value) => int.tryParse(normalizeDigits(value));
 String money(num n) => NumberFormat.decimalPattern('fa').format(n);
 String today() => DateFormat('yyyy/MM/dd').format(DateTime.now());
 
@@ -312,7 +322,7 @@ class _JobsPageState extends State<JobsPage> {
       actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ذخیره'))],
     )));
     if (ok == true && title.text.trim().isNotEmpty) {
-      await AppDb.instance.add('jobs', {'title': title.text.trim(), 'client': client.text.trim(), 'amount': int.tryParse(amount.text.replaceAll(',', '')) ?? 0, 'status': status, 'created': today()});
+      await AppDb.instance.add('jobs', {'title': title.text.trim(), 'client': client.text.trim(), 'amount': parseAmount(amount.text) ?? 0, 'status': status, 'created': today()});
       widget.onChanged();
     }
   }
@@ -355,7 +365,7 @@ class _LedgerPageState extends State<LedgerPage> {
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ذخیره'))],
     ));
-    final n = int.tryParse(amount.text.replaceAll(',', ''));
+    final n = parseAmount(amount.text);
     if (ok == true && n != null && n > 0) {
       await AppDb.instance.add('entries', {'kind': kind, 'title': title.text.trim().isEmpty ? (kind == 'income' ? 'دریافتی' : 'هزینه') : title.text.trim(), 'amount': n, 'created': today()});
       widget.onChanged();
