@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:sqflite/sqflite.dart';
@@ -74,7 +75,7 @@ class _HomePageState extends State<HomePage> {
       JobsPage(key: ValueKey('j$refresh'), onChanged: reload),
       LedgerPage(key: ValueKey('l$refresh'), onChanged: reload),
     ];
-    return Directionality(textDirection: TextDirection.rtl, child: Scaffold(
+    return Directionality(textDirection: ui.TextDirection.rtl, child: Scaffold(
       appBar: AppBar(title: const Text('دفترکار من', style: TextStyle(fontWeight: FontWeight.w800)), actions: [
         IconButton(onPressed: () => showAboutDialog(context: context, applicationName: 'دفترکار من', applicationVersion: '0.1.0', children: const [Text('نسخه اولیه آفلاین؛ اطلاعات فقط روی همین دستگاه ذخیره می‌شود.')]), icon: const Icon(Icons.info_outline))
       ]),
