@@ -30,6 +30,24 @@ jobs:
           cache: true
       - name: Create Android project files
         run: flutter create --platforms=android --org ir.amiriview .
+      - name: Set Android compile SDK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = [Path("android/app/build.gradle.kts"), Path("android/app/build.gradle")]
+          changed = False
+          for path in candidates:
+              if not path.exists():
+                  continue
+              text = path.read_text()
+              updated = text.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 36")
+              updated = updated.replace("compileSdkVersion flutter.compileSdkVersion", "compileSdkVersion 36")
+              if updated != text:
+                  path.write_text(updated)
+                  changed = True
+          if not changed:
+              raise SystemExit("Could not find Flutter compileSdk setting in Android app Gradle file")
+          PY
       - name: Install packages
         run: flutter pub get
       - name: Analyze
