@@ -1,4 +1,8 @@
 import 'dart:ui' as ui;
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:sqflite/sqflite.dart';
@@ -50,6 +54,49 @@ class AppDb {
   Future<List<Map<String,Object?>>> rows(String table) => db.query(table, orderBy: 'id DESC');
   Future<int> add(String table, Map<String,Object?> data) => db.insert(table, data);
   Future<int> remove(String table, int id) => db.delete(table, where: 'id=?', whereArgs: [id]);
+  Future<Map<String, dynamic>> makeBackup() async => {
+    'app': 'daftarkar-man',
+    'backupVersion': 1,
+    'createdAt': DateTime.now().toIso8601String(),
+    'clients': await db.query('clients', orderBy: 'id ASC'),
+    'jobs': await db.query('jobs', orderBy: 'id ASC'),
+    'entries': await db.query('entries', orderBy: 'id ASC'),
+  };
+
+  Future<void> restoreBackup(Map<String, dynamic> data) async {
+    if (data['app'] != 'daftarkar-man' || data['backupVersion'] != 1) {
+      throw const FormatException('نسخه یا ساختار فایل پشتیبان معتبر نیست.');
+    }
+    final clients = data['clients'];
+    final jobs = data['jobs'];
+    final entries = data['entries'];
+    if (clients is! List || jobs is! List || entries is! List) {
+      throw const FormatException('اطلاعات فایل پشتیبان ناقص است.');
+    }
+    Map<String, Object?> row(dynamic value, List<String> required) {
+      if (value is! Map) throw const FormatException('ساختار یکی از ردیف‌ها معتبر نیست.');
+      final result = Map<String, Object?>.from(value);
+      for (final key in required) {
+        if (result[key] == null) throw FormatException('فیلد $key در فایل پشتیبان وجود ندارد.');
+      }
+      return result;
+    }
+    final safeClients = clients.map((v) => row(v, ['name'])).toList();
+    final safeJobs = jobs.map((v) => row(v, ['title', 'amount', 'status', 'created'])).toList();
+    final safeEntries = entries.map((v) => row(v, ['kind', 'title', 'amount', 'created'])).toList();
+    if (safeEntries.any((e) => !['income', 'expense'].contains(e['kind']))) {
+      throw const FormatException('نوع یکی از تراکنش‌ها نامعتبر است.');
+    }
+    await db.transaction((txn) async {
+      await txn.delete('entries');
+      await txn.delete('jobs');
+      await txn.delete('clients');
+      for (final item in safeClients) { await txn.insert('clients', item); }
+      for (final item in safeJobs) { await txn.insert('jobs', item); }
+      for (final item in safeEntries) { await txn.insert('entries', item); }
+    });
+  }
+
   Future<int> total(String kind) async {
     final r = await db.rawQuery('SELECT COALESCE(SUM(amount),0) AS total FROM entries WHERE kind=?', [kind]);
     return (r.first['total'] as int?) ?? 0;
@@ -67,6 +114,55 @@ class _HomePageState extends State<HomePage> {
   int tab = 0;
   int refresh = 0;
   void reload() => setState(() => refresh++);
+
+  void notice(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> exportBackup() async {
+    try {
+      final data = await AppDb.instance.makeBackup();
+      final bytes = Uint8List.fromList(utf8.encode(const JsonEncoder.withIndent('  ').convert(data)));
+      final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+      final file = XFile.fromData(bytes, mimeType: 'application/json', name: 'daftarkar_backup_$stamp.json');
+      await Share.shareXFiles([file], text: 'نسخه پشتیبان دفترکار من');
+      notice('فایل پشتیبان آماده اشتراک‌گذاری است.');
+    } catch (e) {
+      notice('ساخت پشتیبان ناموفق بود: $e');
+    }
+  }
+
+  Future<void> importBackup() async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom, allowedExtensions: ['json'], withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+      final bytes = picked.files.single.bytes;
+      if (bytes == null) { notice('خواندن فایل انتخاب‌شده ممکن نشد.'); return; }
+      final decoded = jsonDecode(utf8.decode(bytes));
+      if (decoded is! Map<String, dynamic>) throw const FormatException('فایل JSON معتبر نیست.');
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('بازیابی اطلاعات'),
+          content: const Text('با بازیابی، اطلاعات فعلی برنامه با اطلاعات فایل پشتیبان جایگزین می‌شود. قبل از ادامه از اطلاعات فعلی هم پشتیبان بگیر. ادامه می‌دهی؟'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('جایگزینی اطلاعات')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await AppDb.instance.restoreBackup(decoded);
+      reload();
+      notice('اطلاعات با موفقیت بازیابی شد.');
+    } catch (e) {
+      notice('بازیابی انجام نشد: $e');
+    }
+  }
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -77,7 +173,22 @@ class _HomePageState extends State<HomePage> {
     ];
     return Directionality(textDirection: ui.TextDirection.rtl, child: Scaffold(
       appBar: AppBar(title: const Text('دفترکار من', style: TextStyle(fontWeight: FontWeight.w800)), actions: [
-        IconButton(onPressed: () => showAboutDialog(context: context, applicationName: 'دفترکار من', applicationVersion: '0.1.0', children: const [Text('نسخه اولیه آفلاین؛ اطلاعات فقط روی همین دستگاه ذخیره می‌شود.')]), icon: const Icon(Icons.info_outline))
+        PopupMenuButton<String>(
+          tooltip: 'ابزارها',
+          onSelected: (value) {
+            if (value == 'backup') exportBackup();
+            if (value == 'restore') importBackup();
+            if (value == 'about') showAboutDialog(
+              context: context, applicationName: 'دفترکار من', applicationVersion: '0.2.0',
+              children: const [Text('مدیریت آفلاین مشتری‌ها، سفارش‌ها و گردش مالی. اطلاعات روی همین دستگاه ذخیره می‌شود. از بخش ابزارها مرتب نسخه پشتیبان تهیه کن.')],
+            );
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(value: 'backup', child: ListTile(leading: Icon(Icons.backup_outlined), title: Text('تهیه نسخه پشتیبان'), contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(value: 'restore', child: ListTile(leading: Icon(Icons.restore), title: Text('بازیابی نسخه پشتیبان'), contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(value: 'about', child: ListTile(leading: Icon(Icons.info_outline), title: Text('درباره برنامه'), contentPadding: EdgeInsets.zero)),
+          ],
+        ),
       ]),
       body: pages[tab],
       bottomNavigationBar: NavigationBar(
