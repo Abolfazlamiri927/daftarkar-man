@@ -127,7 +127,7 @@ class Dashboard extends StatelessWidget {
           leading: const CircleAvatar(child: Icon(Icons.work_outline)),
           title: Text('${j['title']}'),
           subtitle: Text('${j['client'] ?? 'بدون نام مشتری'} • ${j['status']}'),
-          trailing: Text('${money((j['amount'] as int?) ?? 0)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+          trailing: Text(money((j['amount'] as int?) ?? 0), style: const TextStyle(fontWeight: FontWeight.bold)),
         ))),
       ]);
     },
@@ -196,7 +196,7 @@ class _JobsPageState extends State<JobsPage> {
         TextField(controller: title, decoration: const InputDecoration(labelText: 'عنوان سفارش *')),
         const SizedBox(height: 10), TextField(controller: client, decoration: const InputDecoration(labelText: 'نام مشتری')),
         const SizedBox(height: 10), TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مبلغ توافقی (تومان)')),
-        const SizedBox(height: 10), DropdownButtonFormField<String>(value: status, decoration: const InputDecoration(labelText: 'وضعیت'), items: const ['درحال انجام','تمام‌شده','لغوشده'].map((e) => DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v) => setD(() => status = v ?? status)),
+        const SizedBox(height: 10), DropdownButtonFormField<String>(initialValue: status, decoration: const InputDecoration(labelText: 'وضعیت'), items: const ['درحال انجام','تمام‌شده','لغوشده'].map((e) => DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v) => setD(() => status = v ?? status)),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ذخیره'))],
     )));
@@ -219,7 +219,7 @@ class _JobsPageState extends State<JobsPage> {
           title: Text('${x['title']}'),
           subtitle: Text('${x['client'] ?? ''} • ${x['status']}'),
           trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('${money((x['amount'] as int?) ?? 0)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(money((x['amount'] as int?) ?? 0), style: const TextStyle(fontWeight: FontWeight.bold)),
             IconButton(visualDensity: VisualDensity.compact, icon: const Icon(Icons.delete_outline, size: 19), onPressed: () async { await AppDb.instance.remove('jobs', x['id'] as int); widget.onChanged(); })
           ]),
         ));
