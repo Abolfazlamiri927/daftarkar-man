@@ -48,6 +48,48 @@ jobs:
           if not changed:
               raise SystemExit("Could not find Flutter compileSdk setting in Android app Gradle file")
           PY
+      - name: Configure Android plugin compatibility
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("android/build.gradle.kts")
+          if not path.exists():
+              raise SystemExit("Expected Kotlin DSL root Gradle file was not generated")
+
+          text = path.read_text()
+          marker = "// AMIRI_ANDROID_PLUGIN_COMPATIBILITY"
+          if marker not in text:
+              text += """
+
+          // AMIRI_ANDROID_PLUGIN_COMPATIBILITY
+          // Flutter 3.47 / AGP 9 compatibility for plugins still using the
+          // legacy Kotlin Gradle Plugin integration.
+          gradle.beforeProject { sub ->
+              if (sub.name == "file_picker" || sub.name == "share_plus") {
+                  sub.plugins.withId("com.android.library") {
+                      sub.pluginManager.apply("org.jetbrains.kotlin.android")
+                  }
+              }
+          }
+
+          // Keep Android library plugins aligned with the app's compile SDK.
+          subprojects {
+              afterEvaluate {
+                  val androidExtension = extensions.findByName("android")
+                  if (androidExtension != null) {
+                      val setter = androidExtension.javaClass.methods.firstOrNull {
+                          (it.name == "setCompileSdk" || it.name == "setCompileSdkVersion") &&
+                              it.parameterCount == 1 &&
+                              it.parameterTypes[0] == Int::class.javaPrimitiveType
+                      }
+                      setter?.invoke(androidExtension, 36)
+                  }
+              }
+          }
+          """
+              path.write_text(text)
+          PY
       - name: Install packages
         run: flutter pub get
       - name: Analyze
