@@ -63,29 +63,28 @@ jobs:
               text += """
           
           // AMIRI_ANDROID_PLUGIN_COMPATIBILITY
-          // Apply the Kotlin Android plugin to legacy Flutter plugins before evaluation.
+          // Apply Kotlin Android to the affected legacy Flutter plugins before Android plugin configuration.
           gradle.beforeProject(object : org.gradle.api.Action<org.gradle.api.Project> {
               override fun execute(sub: org.gradle.api.Project) {
                   if (sub.name == "file_picker" || sub.name == "share_plus") {
-                      sub.plugins.withId("com.android.library") {
+                      sub.pluginManager.withPlugin("com.android.library") {
                           sub.pluginManager.apply("org.jetbrains.kotlin.android")
                       }
                   }
               }
           })
           
-          // Keep Android library plugins aligned with the app's compile SDK.
+          // Configure compileSdk only when the Android library plugin is present.
           subprojects {
-              afterEvaluate {
+              pluginManager.withPlugin("com.android.library") {
                   val androidExtension = extensions.findByName("android")
-                  if (androidExtension != null) {
-                      val setter = androidExtension.javaClass.methods.firstOrNull {
-                          (it.name == "setCompileSdk" || it.name == "setCompileSdkVersion") &&
-                              it.parameterCount == 1 &&
-                              it.parameterTypes[0] == Int::class.javaPrimitiveType
-                      }
-                      setter?.invoke(androidExtension, 36)
-                  }
+                      ?: throw GradleException("Android extension not found for $name")
+                  val compileSdkSetter = androidExtension.javaClass.methods.firstOrNull {
+                      (it.name == "setCompileSdk" || it.name == "setCompileSdkVersion") &&
+                          it.parameterCount == 1 &&
+                          it.parameterTypes[0] == Int::class.javaPrimitiveType
+                  } ?: throw GradleException("No compatible compileSdk setter found for $name")
+                  compileSdkSetter.invoke(androidExtension, 36)
               }
           }
           """
