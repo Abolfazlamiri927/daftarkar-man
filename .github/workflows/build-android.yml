@@ -17,9 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -65,13 +65,15 @@ jobs:
           // AMIRI_ANDROID_PLUGIN_COMPATIBILITY
           // Flutter 3.47 / AGP 9 compatibility for plugins still using the
           // legacy Kotlin Gradle Plugin integration.
-          gradle.beforeProject { sub ->
+          gradle.beforeProject(org.gradle.api.Action { sub: org.gradle.api.Project ->
               if (sub.name == "file_picker" || sub.name == "share_plus") {
-                  sub.plugins.withId("com.android.library") {
-                      sub.pluginManager.apply("org.jetbrains.kotlin.android")
-                  }
+                  sub.plugins.withId("com.android.library",
+                      org.gradle.api.Action {
+                          sub.pluginManager.apply("org.jetbrains.kotlin.android")
+                      }
+                  )
               }
-          }
+          })
 
           // Keep Android library plugins aligned with the app's compile SDK.
           subprojects {
@@ -99,7 +101,7 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: daftarkar-man-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
