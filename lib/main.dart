@@ -145,7 +145,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> importBackup() async {
     try {
-      final picked = await FilePicker.platform.pickFiles(
+      final picked = await FilePicker.pickFiles(
         type: FileType.custom, allowedExtensions: ['json'], withData: true,
       );
       if (picked == null || picked.files.isEmpty) return;
