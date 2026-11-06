@@ -26,6 +26,23 @@ void main() {
       expect(result.targetPrice, closeTo(42 / 0.75, 0.0001));
     });
 
+    test('rejects infinite batch quantity', () {
+      expect(
+        () => calculateCost(CostInput(batchQuantity: double.infinity, materials: const [])),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects negative material quantity', () {
+      expect(
+        () => calculateCost(const CostInput(
+          batchQuantity: 1,
+          materials: [CostLine(name: 'ماده', quantity: -1, unitCost: 100)],
+        )),
+        throwsArgumentError,
+      );
+    });
+
     test('rejects zero batch quantity', () {
       expect(
         () => calculateCost(const CostInput(batchQuantity: 0, materials: [])),
