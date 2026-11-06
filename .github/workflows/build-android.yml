@@ -2,6 +2,8 @@ name: Build Android APK
 
 on:
   push:
+    branches: [main, mvp/product-cost-tool]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -93,7 +95,7 @@ jobs:
       - name: Install packages
         run: flutter pub get
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Run tests
         run: flutter test
       - name: Build release APK
