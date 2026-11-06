@@ -68,7 +68,7 @@ class CostInput {
 }
 
 CostBreakdown calculateCost(CostInput input) {
-  if (input.batchQuantity <= 0) {
+  if (!input.batchQuantity.isFinite || input.batchQuantity <= 0) {
     throw ArgumentError.value(input.batchQuantity, 'batchQuantity', 'باید بیشتر از صفر باشد');
   }
   for (final value in [
