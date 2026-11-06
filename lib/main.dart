@@ -8,6 +8,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
+import 'costing.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,11 +46,19 @@ class AppDb {
   late Database db;
   Future<void> init() async {
     final path = p.join(await getDatabasesPath(), 'daftarkar.db');
-    db = await openDatabase(path, version: 1, onCreate: (d, v) async {
+    db = await openDatabase(path, version: 2, onCreate: (d, v) async {
       await d.execute('CREATE TABLE clients(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, note TEXT)');
       await d.execute('CREATE TABLE jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, client TEXT, amount INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT "درحال انجام", created TEXT NOT NULL)');
       await d.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, title TEXT NOT NULL, amount INTEGER NOT NULL, created TEXT NOT NULL)');
+      await _createCostTables(d);
+    }, onUpgrade: (d, oldVersion, newVersion) async {
+      if (oldVersion < 2) await _createCostTables(d);
     });
+  }
+  Future<void> _createCostTables(DatabaseExecutor d) async {
+    await d.execute('CREATE TABLE materials(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, unit TEXT NOT NULL, pack_qty REAL NOT NULL, pack_price INTEGER NOT NULL, updated_at TEXT NOT NULL)');
+    await d.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, batch_qty REAL NOT NULL, selling_price INTEGER NOT NULL, packaging_cost INTEGER NOT NULL DEFAULT 0, labor_cost INTEGER NOT NULL DEFAULT 0, overhead_cost INTEGER NOT NULL DEFAULT 0, waste_rate REAL NOT NULL DEFAULT 0, commission_rate REAL NOT NULL DEFAULT 0, target_margin_rate REAL NOT NULL DEFAULT 0.25, created TEXT NOT NULL)');
+    await d.execute('CREATE TABLE recipe(id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, material_id INTEGER NOT NULL, quantity REAL NOT NULL, FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE, FOREIGN KEY(material_id) REFERENCES materials(id))');
   }
   Future<List<Map<String,Object?>>> rows(String table) => db.query(table, orderBy: 'id DESC');
   Future<int> add(String table, Map<String,Object?> data) => db.insert(table, data);
@@ -61,16 +70,22 @@ class AppDb {
     'clients': await db.query('clients', orderBy: 'id ASC'),
     'jobs': await db.query('jobs', orderBy: 'id ASC'),
     'entries': await db.query('entries', orderBy: 'id ASC'),
+    'materials': await db.query('materials', orderBy: 'id ASC'),
+    'products': await db.query('products', orderBy: 'id ASC'),
+    'recipe': await db.query('recipe', orderBy: 'id ASC'),
   };
 
   Future<void> restoreBackup(Map<String, dynamic> data) async {
-    if (data['app'] != 'daftarkar-man' || data['backupVersion'] != 1) {
+    if (data['app'] != 'daftarkar-man' || ![1, 2].contains(data['backupVersion'])) {
       throw const FormatException('نسخه یا ساختار فایل پشتیبان معتبر نیست.');
     }
     final clients = data['clients'];
     final jobs = data['jobs'];
     final entries = data['entries'];
-    if (clients is! List || jobs is! List || entries is! List) {
+    final materials = data['materials'] ?? [];
+    final products = data['products'] ?? [];
+    final recipe = data['recipe'] ?? [];
+    if (clients is! List || jobs is! List || entries is! List || materials is! List || products is! List || recipe is! List) {
       throw const FormatException('اطلاعات فایل پشتیبان ناقص است.');
     }
     Map<String, Object?> row(dynamic value, List<String> required) {
@@ -84,16 +99,25 @@ class AppDb {
     final safeClients = clients.map((v) => row(v, ['name'])).toList();
     final safeJobs = jobs.map((v) => row(v, ['title', 'amount', 'status', 'created'])).toList();
     final safeEntries = entries.map((v) => row(v, ['kind', 'title', 'amount', 'created'])).toList();
+    final safeMaterials = materials.map((v) => row(v, ['name', 'unit', 'pack_qty', 'pack_price', 'updated_at'])).toList();
+    final safeProducts = products.map((v) => row(v, ['name', 'batch_qty', 'selling_price', 'created'])).toList();
+    final safeRecipe = recipe.map((v) => row(v, ['product_id', 'material_id', 'quantity'])).toList();
     if (safeEntries.any((e) => !['income', 'expense'].contains(e['kind']))) {
       throw const FormatException('نوع یکی از تراکنش‌ها نامعتبر است.');
     }
     await db.transaction((txn) async {
+      await txn.delete('recipe');
+      await txn.delete('products');
+      await txn.delete('materials');
       await txn.delete('entries');
       await txn.delete('jobs');
       await txn.delete('clients');
       for (final item in safeClients) { await txn.insert('clients', item); }
       for (final item in safeJobs) { await txn.insert('jobs', item); }
       for (final item in safeEntries) { await txn.insert('entries', item); }
+      for (final item in safeMaterials) { await txn.insert('materials', item); }
+      for (final item in safeProducts) { await txn.insert('products', item); }
+      for (final item in safeRecipe) { await txn.insert('recipe', item); }
     });
   }
 
