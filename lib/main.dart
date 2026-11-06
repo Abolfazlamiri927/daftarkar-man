@@ -46,19 +46,24 @@ class AppDb {
   late Database db;
   Future<void> init() async {
     final path = p.join(await getDatabasesPath(), 'daftarkar.db');
-    db = await openDatabase(path, version: 2, onCreate: (d, v) async {
+    db = await openDatabase(path, version: 3, onCreate: (d, v) async {
       await d.execute('CREATE TABLE clients(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, note TEXT)');
       await d.execute('CREATE TABLE jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, client TEXT, amount INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT "درحال انجام", created TEXT NOT NULL)');
       await d.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, title TEXT NOT NULL, amount INTEGER NOT NULL, created TEXT NOT NULL)');
       await _createCostTables(d);
+      await _createPriceHistoryTable(d);
     }, onUpgrade: (d, oldVersion, newVersion) async {
       if (oldVersion < 2) await _createCostTables(d);
+      if (oldVersion < 3) await _createPriceHistoryTable(d);
     });
   }
   Future<void> _createCostTables(DatabaseExecutor d) async {
     await d.execute('CREATE TABLE materials(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, unit TEXT NOT NULL, pack_qty REAL NOT NULL, pack_price INTEGER NOT NULL, updated_at TEXT NOT NULL)');
     await d.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, batch_qty REAL NOT NULL, selling_price INTEGER NOT NULL, packaging_cost INTEGER NOT NULL DEFAULT 0, labor_cost INTEGER NOT NULL DEFAULT 0, overhead_cost INTEGER NOT NULL DEFAULT 0, waste_rate REAL NOT NULL DEFAULT 0, commission_rate REAL NOT NULL DEFAULT 0, target_margin_rate REAL NOT NULL DEFAULT 0.25, created TEXT NOT NULL)');
     await d.execute('CREATE TABLE recipe(id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, material_id INTEGER NOT NULL, quantity REAL NOT NULL, FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE, FOREIGN KEY(material_id) REFERENCES materials(id))');
+  }
+  Future<void> _createPriceHistoryTable(DatabaseExecutor d) async {
+    await d.execute('CREATE TABLE material_price_history(id INTEGER PRIMARY KEY AUTOINCREMENT, material_id INTEGER NOT NULL, pack_qty REAL NOT NULL, pack_price INTEGER NOT NULL, changed_at TEXT NOT NULL)');
   }
   Future<List<Map<String,Object?>>> rows(String table) => db.query(table, orderBy: 'id DESC');
   Future<int> add(String table, Map<String,Object?> data) => db.insert(table, data);
@@ -73,6 +78,7 @@ class AppDb {
     'materials': await db.query('materials', orderBy: 'id ASC'),
     'products': await db.query('products', orderBy: 'id ASC'),
     'recipe': await db.query('recipe', orderBy: 'id ASC'),
+    'materialPriceHistory': await db.query('material_price_history', orderBy: 'id ASC'),
   };
 
   Future<void> restoreBackup(Map<String, dynamic> data) async {
@@ -85,7 +91,8 @@ class AppDb {
     final materials = data['materials'] ?? [];
     final products = data['products'] ?? [];
     final recipe = data['recipe'] ?? [];
-    if (clients is! List || jobs is! List || entries is! List || materials is! List || products is! List || recipe is! List) {
+    final priceHistory = data['materialPriceHistory'] ?? [];
+    if (clients is! List || jobs is! List || entries is! List || materials is! List || products is! List || recipe is! List || priceHistory is! List) {
       throw const FormatException('اطلاعات فایل پشتیبان ناقص است.');
     }
     Map<String, Object?> row(dynamic value, List<String> required) {
@@ -102,10 +109,12 @@ class AppDb {
     final safeMaterials = materials.map((v) => row(v, ['name', 'unit', 'pack_qty', 'pack_price', 'updated_at'])).toList();
     final safeProducts = products.map((v) => row(v, ['name', 'batch_qty', 'selling_price', 'created'])).toList();
     final safeRecipe = recipe.map((v) => row(v, ['product_id', 'material_id', 'quantity'])).toList();
+    final safePriceHistory = priceHistory.map((v) => row(v, ['material_id', 'pack_qty', 'pack_price', 'changed_at'])).toList();
     if (safeEntries.any((e) => !['income', 'expense'].contains(e['kind']))) {
       throw const FormatException('نوع یکی از تراکنش‌ها نامعتبر است.');
     }
     await db.transaction((txn) async {
+      await txn.delete('material_price_history');
       await txn.delete('recipe');
       await txn.delete('products');
       await txn.delete('materials');
@@ -118,6 +127,7 @@ class AppDb {
       for (final item in safeMaterials) { await txn.insert('materials', item); }
       for (final item in safeProducts) { await txn.insert('products', item); }
       for (final item in safeRecipe) { await txn.insert('recipe', item); }
+      for (final item in safePriceHistory) { await txn.insert('material_price_history', item); }
     });
   }
 
@@ -286,9 +296,12 @@ class _CostingPageState extends State<CostingPage> {
     final price = parseAmount(packPrice.text);
     if (ok == true && name.text.trim().isNotEmpty && unit.text.trim().isNotEmpty &&
         q != null && q > 0 && price != null && price > 0) {
-      await AppDb.instance.add('materials', {
+      final materialId = await AppDb.instance.add('materials', {
         'name': name.text.trim(), 'unit': unit.text.trim(),
         'pack_qty': q, 'pack_price': price, 'updated_at': today(),
+      });
+      await AppDb.instance.add('material_price_history', {
+        'material_id': materialId, 'pack_qty': q, 'pack_price': price, 'changed_at': today(),
       });
       refreshData();
     }
@@ -313,9 +326,14 @@ class _CostingPageState extends State<CostingPage> {
     final quantity = parseDecimal(q.text);
     final amount = parseAmount(price.text);
     if (ok == true && quantity != null && quantity > 0 && amount != null && amount > 0) {
-      await AppDb.instance.db.update('materials', {
-        'pack_qty': quantity, 'pack_price': amount, 'updated_at': today(),
-      }, where: 'id=?', whereArgs: [item['id']]);
+      await AppDb.instance.db.transaction((txn) async {
+        await txn.update('materials', {
+          'pack_qty': quantity, 'pack_price': amount, 'updated_at': today(),
+        }, where: 'id=?', whereArgs: [item['id']]);
+        await txn.insert('material_price_history', {
+          'material_id': item['id'], 'pack_qty': quantity, 'pack_price': amount, 'changed_at': today(),
+        });
+      });
       refreshData();
     }
     q.dispose(); price.dispose();
