@@ -65,7 +65,7 @@ class AppDb {
   Future<int> remove(String table, int id) => db.delete(table, where: 'id=?', whereArgs: [id]);
   Future<Map<String, dynamic>> makeBackup() async => {
     'app': 'daftarkar-man',
-    'backupVersion': 1,
+    'backupVersion': 2,
     'createdAt': DateTime.now().toIso8601String(),
     'clients': await db.query('clients', orderBy: 'id ASC'),
     'jobs': await db.query('jobs', orderBy: 'id ASC'),
@@ -201,6 +201,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final pages = [
       Dashboard(key: ValueKey('d$refresh')),
+      CostingPage(key: ValueKey('p$refresh'), onChanged: reload),
       ClientsPage(key: ValueKey('c$refresh'), onChanged: reload),
       JobsPage(key: ValueKey('j$refresh'), onChanged: reload),
       LedgerPage(key: ValueKey('l$refresh'), onChanged: reload),
@@ -230,6 +231,7 @@ class _HomePageState extends State<HomePage> {
         onDestinationSelected: (v) => setState(() => tab = v),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.space_dashboard_outlined), selectedIcon: Icon(Icons.space_dashboard), label: 'خانه'),
+          NavigationDestination(icon: Icon(Icons.price_change_outlined), selectedIcon: Icon(Icons.price_change), label: 'قیمت‌گذاری'),
           NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'مشتری‌ها'),
           NavigationDestination(icon: Icon(Icons.assignment_outlined), selectedIcon: Icon(Icons.assignment), label: 'سفارش‌ها'),
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'حساب‌وکتاب'),
@@ -237,6 +239,308 @@ class _HomePageState extends State<HomePage> {
       ),
     ));
   }
+}
+
+
+double? parseDecimal(String value) {
+  final normalized = normalizeDigits(value).replaceAll('٫', '.').replaceAll(',', '.');
+  return double.tryParse(normalized);
+}
+
+class CostingPage extends StatefulWidget {
+  final VoidCallback onChanged;
+  const CostingPage({super.key, required this.onChanged});
+  @override State<CostingPage> createState() => _CostingPageState();
+}
+
+class _CostingPageState extends State<CostingPage> {
+  int section = 0;
+
+  void refreshData() {
+    if (mounted) setState(() {});
+    widget.onChanged();
+  }
+
+  Future<void> addMaterial() async {
+    final name = TextEditingController();
+    final unit = TextEditingController(text: 'گرم');
+    final packQty = TextEditingController();
+    final packPrice = TextEditingController();
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('ماده اولیه جدید'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, decoration: const InputDecoration(labelText: 'نام ماده اولیه')),
+        const SizedBox(height: 8),
+        TextField(controller: unit, decoration: const InputDecoration(labelText: 'واحد اندازه‌گیری')),
+        const SizedBox(height: 8),
+        TextField(controller: packQty, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مقدار بسته خریداری‌شده')),
+        const SizedBox(height: 8),
+        TextField(controller: packPrice, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'قیمت کل بسته (تومان)')),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ذخیره')),
+      ],
+    ));
+    final q = parseDecimal(packQty.text);
+    final price = parseAmount(packPrice.text);
+    if (ok == true && name.text.trim().isNotEmpty && unit.text.trim().isNotEmpty &&
+        q != null && q > 0 && price != null && price > 0) {
+      await AppDb.instance.add('materials', {
+        'name': name.text.trim(), 'unit': unit.text.trim(),
+        'pack_qty': q, 'pack_price': price, 'updated_at': today(),
+      });
+      refreshData();
+    }
+    name.dispose(); unit.dispose(); packQty.dispose(); packPrice.dispose();
+  }
+
+  Future<void> editMaterial(Map<String, Object?> item) async {
+    final q = TextEditingController(text: item['pack_qty'].toString());
+    final price = TextEditingController(text: item['pack_price'].toString());
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: Text('قیمت جدید: ' + item['name'].toString()),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: q, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مقدار بسته')),
+        const SizedBox(height: 8),
+        TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'قیمت بسته (تومان)')),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ثبت')),
+      ],
+    ));
+    final quantity = parseDecimal(q.text);
+    final amount = parseAmount(price.text);
+    if (ok == true && quantity != null && quantity > 0 && amount != null && amount > 0) {
+      await AppDb.instance.db.update('materials', {
+        'pack_qty': quantity, 'pack_price': amount, 'updated_at': today(),
+      }, where: 'id=?', whereArgs: [item['id']]);
+      refreshData();
+    }
+    q.dispose(); price.dispose();
+  }
+
+  Future<void> addProduct() async {
+    final materials = await AppDb.instance.rows('materials');
+    if (materials.isEmpty) {
+      if (mounted) {
+        setState(() => section = 1);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ابتدا مواد اولیه را ثبت کن.')));
+      }
+      return;
+    }
+    final name = TextEditingController();
+    final batch = TextEditingController(text: '1');
+    final selling = TextEditingController();
+    final packaging = TextEditingController(text: '0');
+    final labor = TextEditingController(text: '0');
+    final overhead = TextEditingController(text: '0');
+    final waste = TextEditingController(text: '0');
+    final commission = TextEditingController(text: '0');
+    final target = TextEditingController(text: '25');
+    final lines = <Map<String, dynamic>>[
+      {'materialId': materials.first['id'] as int, 'quantity': TextEditingController(text: '1')}
+    ];
+    final ok = await showDialog<bool>(context: context, builder: (c) => StatefulBuilder(builder: (c, setD) => AlertDialog(
+      title: const Text('محصول و فرمول ساخت'),
+      content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, decoration: const InputDecoration(labelText: 'نام محصول')),
+        const SizedBox(height: 8),
+        TextField(controller: batch, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'تعداد محصول در هر نوبت تولید')),
+        const SizedBox(height: 12),
+        const Align(alignment: Alignment.centerRight, child: Text('مواد مصرفی در هر نوبت', style: TextStyle(fontWeight: FontWeight.bold))),
+        ...lines.asMap().entries.map((entry) {
+          final line = entry.value;
+          return Padding(padding: const EdgeInsets.only(top: 8), child: Row(children: [
+            Expanded(flex: 3, child: DropdownButtonFormField<int>(
+              value: line['materialId'] as int,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'ماده'),
+              items: materials.map((m) => DropdownMenuItem<int>(
+                value: m['id'] as int,
+                child: Text(m['name'].toString() + ' (' + m['unit'].toString() + ')', overflow: TextOverflow.ellipsis),
+              )).toList(),
+              onChanged: (v) => setD(() => line['materialId'] = v),
+            )),
+            const SizedBox(width: 6),
+            Expanded(flex: 2, child: TextField(
+              controller: line['quantity'] as TextEditingController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'مقدار'),
+            )),
+            IconButton(
+              onPressed: lines.length == 1 ? null : () => setD(() => lines.remove(line)),
+              icon: const Icon(Icons.remove_circle_outline),
+            ),
+          ]));
+        }),
+        Align(alignment: Alignment.centerRight, child: TextButton.icon(
+          onPressed: () => setD(() => lines.add({
+            'materialId': materials.first['id'] as int,
+            'quantity': TextEditingController(text: '1'),
+          })),
+          icon: const Icon(Icons.add), label: const Text('افزودن ماده'),
+        )),
+        const Divider(),
+        TextField(controller: packaging, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'بسته‌بندی کل نوبت (تومان)')),
+        const SizedBox(height: 8),
+        TextField(controller: labor, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'دستمزد کل نوبت (تومان)')),
+        const SizedBox(height: 8),
+        TextField(controller: overhead, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'سربار کل نوبت (تومان)')),
+        const SizedBox(height: 8),
+        TextField(controller: waste, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'ضایعات مواد به درصد')),
+        const SizedBox(height: 8),
+        TextField(controller: commission, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'کارمزد فروش به درصد')),
+        const SizedBox(height: 8),
+        TextField(controller: target, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'حاشیه سود هدف به درصد')),
+        const SizedBox(height: 8),
+        TextField(controller: selling, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'قیمت فروش فعلی هر واحد (تومان)')),
+      ]))),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ذخیره محصول')),
+      ],
+    )));
+    final batchQty = parseDecimal(batch.text);
+    final percent = (String value) => (parseDecimal(value) ?? 0) / 100;
+    final validLines = lines.every((line) {
+      final q = parseDecimal((line['quantity'] as TextEditingController).text);
+      return line['materialId'] != null && q != null && q > 0;
+    });
+    if (ok == true && name.text.trim().isNotEmpty && batchQty != null && batchQty > 0 && validLines) {
+      final productId = await AppDb.instance.add('products', {
+        'name': name.text.trim(),
+        'batch_qty': batchQty,
+        'selling_price': parseAmount(selling.text) ?? 0,
+        'packaging_cost': parseAmount(packaging.text) ?? 0,
+        'labor_cost': parseAmount(labor.text) ?? 0,
+        'overhead_cost': parseAmount(overhead.text) ?? 0,
+        'waste_rate': percent(waste.text),
+        'commission_rate': percent(commission.text),
+        'target_margin_rate': percent(target.text),
+        'created': today(),
+      });
+      for (final line in lines) {
+        await AppDb.instance.add('recipe', {
+          'product_id': productId,
+          'material_id': line['materialId'],
+          'quantity': parseDecimal((line['quantity'] as TextEditingController).text) ?? 0,
+        });
+      }
+      refreshData();
+    }
+    for (final line in lines) {
+      (line['quantity'] as TextEditingController).dispose();
+    }
+    name.dispose(); batch.dispose(); selling.dispose(); packaging.dispose();
+    labor.dispose(); overhead.dispose(); waste.dispose(); commission.dispose(); target.dispose();
+  }
+
+  Future<Map<String, dynamic>> calculateProduct(Map<String, Object?> product) async {
+    final recipeRows = await AppDb.instance.db.rawQuery(
+      'SELECT recipe.quantity, materials.name, materials.unit, materials.pack_qty, materials.pack_price '
+      'FROM recipe JOIN materials ON materials.id=recipe.material_id WHERE recipe.product_id=?',
+      [product['id']],
+    );
+    final materialLines = recipeRows.map((r) => CostLine(
+      name: r['name'].toString(),
+      quantity: (r['quantity'] as num).toDouble(),
+      unitCost: (r['pack_price'] as num).toDouble() / (r['pack_qty'] as num).toDouble(),
+    )).toList();
+    final result = calculateCost(CostInput(
+      batchQuantity: (product['batch_qty'] as num).toDouble(),
+      materials: materialLines,
+      packagingCost: (product['packaging_cost'] as num).toDouble(),
+      laborCost: (product['labor_cost'] as num).toDouble(),
+      overheadCost: (product['overhead_cost'] as num).toDouble(),
+      wasteRate: (product['waste_rate'] as num).toDouble(),
+      commissionRate: (product['commission_rate'] as num).toDouble(),
+      sellingPrice: (product['selling_price'] as num).toDouble() > 0
+          ? (product['selling_price'] as num).toDouble() : null,
+      targetMarginRate: (product['target_margin_rate'] as num).toDouble(),
+    ));
+    return {'breakdown': result, 'materials': materialLines};
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: section == 0 ? addProduct : addMaterial,
+      icon: const Icon(Icons.add),
+      label: Text(section == 0 ? 'محصول جدید' : 'ماده اولیه جدید'),
+    ),
+    body: Column(children: [
+      Padding(padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), child: SegmentedButton<int>(
+        segments: const [
+          ButtonSegment(value: 0, label: Text('محصولات و سود'), icon: Icon(Icons.inventory_2_outlined)),
+          ButtonSegment(value: 1, label: Text('مواد اولیه'), icon: Icon(Icons.grass_outlined)),
+        ],
+        selected: {section},
+        onSelectionChanged: (values) => setState(() => section = values.first),
+      )),
+      Expanded(child: section == 1
+        ? FutureBuilder<List<Map<String, Object?>>>(future: AppDb.instance.rows('materials'), builder: (c, snap) {
+            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+            if (snap.data!.isEmpty) return const _Empty(text: 'مواد اولیه را با مقدار بسته و قیمت خرید ثبت کن. قیمت هر واحد خودکار محاسبه می‌شود.');
+            return ListView(padding: const EdgeInsets.all(12), children: snap.data!.map((m) {
+              final unitCost = (m['pack_price'] as num) / (m['pack_qty'] as num);
+              return Card(child: ListTile(
+                onTap: () => editMaterial(m),
+                leading: const CircleAvatar(child: Icon(Icons.grass_outlined)),
+                title: Text(m['name'].toString()),
+                subtitle: Text(
+                  'بسته: ' + money(m['pack_price'] as num) + ' تومان برای ' +
+                  m['pack_qty'].toString() + ' ' + m['unit'].toString() +
+                  '\nقیمت هر ' + m['unit'].toString() + ': ' + money(unitCost) + ' تومان',
+                ),
+                isThreeLine: true,
+                trailing: const Icon(Icons.edit_outlined),
+              ));
+            }).toList());
+          })
+        : FutureBuilder<List<Map<String, Object?>>>(future: AppDb.instance.rows('products'), builder: (c, snap) {
+            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+            if (snap.data!.isEmpty) return const _Empty(text: 'اول مواد اولیه را ثبت کن، بعد محصول و فرمول ساختش را بساز. تغییر قیمت مواد اولیه، سود محصولات را دوباره محاسبه می‌کند.');
+            return ListView(padding: const EdgeInsets.all(12), children: snap.data!.map((product) => FutureBuilder<Map<String, dynamic>>(
+              future: calculateProduct(product),
+              builder: (c, costSnap) {
+                if (!costSnap.hasData) return const Card(child: ListTile(title: Text('در حال محاسبه...')));
+                final cost = costSnap.data!['breakdown'] as CostBreakdown;
+                final margin = cost.marginRate;
+                final targetMargin = (product['target_margin_rate'] as num).toDouble();
+                final belowTarget = margin != null && margin < targetMargin;
+                return Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(product['name'].toString(), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  _line('بهای تمام‌شده هر واحد', cost.unitCost),
+                  _line('قیمت فروش پیشنهادی با سود هدف', cost.targetPrice),
+                  if (cost.sellingPrice != null) _line('سود هر واحد با قیمت فعلی', cost.unitProfit ?? 0),
+                  if (margin != null) _line('حاشیه سود فعلی', margin * 100, suffix: '%'),
+                  if (belowTarget) const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Row(children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.deepOrange, size: 18),
+                      SizedBox(width: 5),
+                      Expanded(child: Text('حاشیه سود از هدف تعیین‌شده کمتر است.', style: TextStyle(color: Colors.deepOrange))),
+                    ]),
+                  ),
+                  const SizedBox(height: 6),
+                  Text('با تغییر قیمت مواد اولیه، این محاسبات به‌روز می‌شوند.', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                ])));
+              },
+            )).toList());
+          })),
+    ]),
+  );
+
+  Widget _line(String label, num value, {String suffix = ' تومان'}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Expanded(child: Text(label, style: const TextStyle(color: Colors.black54))),
+      Text(money(value) + suffix, style: const TextStyle(fontWeight: FontWeight.w700)),
+    ]),
+  );
 }
 
 class Dashboard extends StatelessWidget {
