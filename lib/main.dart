@@ -613,15 +613,25 @@ class _CostingPageState extends State<CostingPage> {
                 final cost = costSnap.data!['breakdown'] as CostBreakdown;
                 final margin = cost.marginRate;
                 final targetMargin = (product['target_margin_rate'] as num).toDouble();
+                final belowBreakEven = cost.sellingPrice != null &&
+                    cost.sellingPrice! < cost.breakEvenPrice;
                 final belowTarget = margin != null && margin < targetMargin;
                 return Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(product['name'].toString(), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   _line('بهای تمام‌شده هر واحد', cost.unitCost),
+                  _line('قیمت سربه‌سر بدون سود', cost.breakEvenPrice),
                   _line('قیمت فروش پیشنهادی با سود هدف', cost.targetPrice),
                   if (cost.sellingPrice != null) _line('سود هر واحد با قیمت فعلی', cost.unitProfit ?? 0),
                   if (margin != null) _line('حاشیه سود فعلی', margin * 100, suffix: '%'),
-                  if (belowTarget) const Padding(
+                  if (belowBreakEven) const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Row(children: [
+                      Icon(Icons.error_outline, color: Colors.red, size: 18),
+                      SizedBox(width: 5),
+                      Expanded(child: Text('هشدار: قیمت فعلی حتی هزینه‌ها و کارمزد فروش را پوشش نمی‌دهد؛ فروش با این قیمت زیان‌ده است.', style: TextStyle(color: Colors.red))),
+                    ]),
+                  ) else if (belowTarget) const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Row(children: [
                       Icon(Icons.warning_amber_rounded, color: Colors.deepOrange, size: 18),
