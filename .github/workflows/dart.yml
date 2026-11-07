@@ -7,9 +7,9 @@ name: Dart
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main, 'mvp/**']
   pull_request:
-    branches: [ "main" ]
+    branches: [main, mvp/product-cost-tool]
 
 jobs:
   build:

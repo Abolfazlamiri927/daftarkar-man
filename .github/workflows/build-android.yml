@@ -2,9 +2,9 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, mvp/product-cost-tool]
+    branches: [main, 'mvp/**']
   pull_request:
-    branches: [main]
+    branches: [main, mvp/product-cost-tool]
   workflow_dispatch:
 
 concurrency:

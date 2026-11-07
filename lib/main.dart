@@ -339,6 +339,82 @@ class _CostingPageState extends State<CostingPage> {
     q.dispose(); price.dispose();
   }
 
+  Future<void> showPriceHistory(Map<String, Object?> material) async {
+    final history = await AppDb.instance.db.query(
+      'material_price_history',
+      where: 'material_id=?',
+      whereArgs: [material['id']],
+      orderBy: 'id DESC',
+    );
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: SizedBox(
+            height: MediaQuery.of(sheetContext).size.height * 0.65,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('تاریخچه قیمت: ${material['name']}',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text('قیمت هر ${material['unit']} در خریدهای ثبت‌شده',
+                    style: TextStyle(color: Colors.grey.shade600)),
+                const Divider(height: 24),
+                Expanded(
+                  child: history.isEmpty
+                      ? const _Empty(text: 'هنوز سابقه‌ای برای این ماده ثبت نشده است.')
+                      : ListView.builder(
+                          itemCount: history.length,
+                          itemBuilder: (context, index) {
+                            final item = history[index];
+                            final unitPrice = (item['pack_price'] as num) /
+                                (item['pack_qty'] as num);
+                            double? change;
+                            if (index + 1 < history.length) {
+                              final previous = history[index + 1];
+                              final previousUnitPrice =
+                                  (previous['pack_price'] as num) /
+                                  (previous['pack_qty'] as num);
+                              if (previousUnitPrice > 0) {
+                                change = (unitPrice - previousUnitPrice) /
+                                    previousUnitPrice * 100;
+                              }
+                            }
+                            return Card(
+                              child: ListTile(
+                                leading: const CircleAvatar(
+                                  child: Icon(Icons.history),
+                                ),
+                                title: Text('${money(unitPrice)} تومان برای هر ${material['unit']}'),
+                                subtitle: Text(
+                                  '${item['changed_at']} • بسته ${item['pack_qty']} ${material['unit']} به قیمت ${money(item['pack_price'] as num)} تومان',
+                                ),
+                                trailing: change == null
+                                    ? null
+                                    : Text(
+                                        '${change >= 0 ? '+' : ''}${change.toStringAsFixed(1)}٪',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: change > 0 ? Colors.deepOrange : Colors.green,
+                                        ),
+                                      ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> addProduct() async {
     final materials = await AppDb.instance.rows('materials');
     if (materials.isEmpty) {
@@ -513,7 +589,17 @@ class _CostingPageState extends State<CostingPage> {
                   '\nقیمت هر ' + m['unit'].toString() + ': ' + money(unitCost) + ' تومان',
                 ),
                 isThreeLine: true,
-                trailing: const Icon(Icons.edit_outlined),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'تاریخچه قیمت',
+                      icon: const Icon(Icons.history),
+                      onPressed: () => showPriceHistory(m),
+                    ),
+                    const Icon(Icons.edit_outlined),
+                  ],
+                ),
               ));
             }).toList());
           })
@@ -527,15 +613,25 @@ class _CostingPageState extends State<CostingPage> {
                 final cost = costSnap.data!['breakdown'] as CostBreakdown;
                 final margin = cost.marginRate;
                 final targetMargin = (product['target_margin_rate'] as num).toDouble();
+                final belowBreakEven = cost.sellingPrice != null &&
+                    cost.sellingPrice! < cost.breakEvenPrice;
                 final belowTarget = margin != null && margin < targetMargin;
                 return Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(product['name'].toString(), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   _line('بهای تمام‌شده هر واحد', cost.unitCost),
+                  _line('قیمت سربه‌سر بدون سود', cost.breakEvenPrice),
                   _line('قیمت فروش پیشنهادی با سود هدف', cost.targetPrice),
                   if (cost.sellingPrice != null) _line('سود هر واحد با قیمت فعلی', cost.unitProfit ?? 0),
                   if (margin != null) _line('حاشیه سود فعلی', margin * 100, suffix: '%'),
-                  if (belowTarget) const Padding(
+                  if (belowBreakEven) const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Row(children: [
+                      Icon(Icons.error_outline, color: Colors.red, size: 18),
+                      SizedBox(width: 5),
+                      Expanded(child: Text('هشدار: قیمت فعلی حتی هزینه‌ها و کارمزد فروش را پوشش نمی‌دهد؛ فروش با این قیمت زیان‌ده است.', style: TextStyle(color: Colors.red))),
+                    ]),
+                  ) else if (belowTarget) const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Row(children: [
                       Icon(Icons.warning_amber_rounded, color: Colors.deepOrange, size: 18),
