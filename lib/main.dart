@@ -224,7 +224,7 @@ class _HomePageState extends State<HomePage> {
             if (value == 'backup') { exportBackup(); }
             if (value == 'restore') { importBackup(); }
             if (value == 'about') { showAboutDialog(
-              context: context, applicationName: 'دفترکار من', applicationVersion: '0.2.0',
+              context: context, applicationName: 'دفترکار من', applicationVersion: '0.3.0',
               children: const [Text('مدیریت آفلاین مشتری‌ها، سفارش‌ها و گردش مالی. اطلاعات روی همین دستگاه ذخیره می‌شود. از بخش ابزارها مرتب نسخه پشتیبان تهیه کن.')],
             ); }
           },
