@@ -1,0 +1,1 @@
+CI validation marker: Flutter analysis treats informational lints as non-blocking; tests and release build remain required gates.
