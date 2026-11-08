@@ -474,7 +474,7 @@ class _CostingPageState extends State<CostingPage> {
                       child: Text(
                         belowBreakEven
                             ? 'این قیمت زیان‌ده است. هزینه تولید و کارمزد فروش پوشش داده نمی‌شود.'
-                            : 'در این قیمت، به ازای هر واحد ${money(profit!)} تومان سود باقی می‌ماند.',
+                            : 'در این قیمت، به ازای هر واحد ${money(profit)} تومان سود باقی می‌ماند.',
                         style: TextStyle(
                           color: belowBreakEven ? Colors.red.shade800 : Colors.green.shade800,
                           fontWeight: FontWeight.w600,
@@ -548,7 +548,7 @@ class _CostingPageState extends State<CostingPage> {
           final line = entry.value;
           return Padding(padding: const EdgeInsets.only(top: 8), child: Row(children: [
             Expanded(flex: 3, child: DropdownButtonFormField<int>(
-              value: line['materialId'] as int,
+              initialValue: line['materialId'] as int,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'ماده'),
               items: materials.map((m) => DropdownMenuItem<int>(
