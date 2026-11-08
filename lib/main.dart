@@ -625,25 +625,27 @@ class _CostingPageState extends State<CostingPage> {
         overheadAmount != null && overheadAmount >= 0 &&
         sellingPrice != null && sellingPrice >= 0;
     if (ok == true && validForm) {
-      final productId = await AppDb.instance.add('products', {
-        'name': name.text.trim(),
-        'batch_qty': batchQty,
-        'selling_price': sellingPrice,
-        'packaging_cost': packagingAmount,
-        'labor_cost': laborAmount,
-        'overhead_cost': overheadAmount,
-        'waste_rate': wasteRate,
-        'commission_rate': commissionRate,
-        'target_margin_rate': targetMarginRate,
-        'created': today(),
-      });
-      for (final line in lines) {
-        await AppDb.instance.add('recipe', {
-          'product_id': productId,
-          'material_id': line['materialId'],
-          'quantity': parseDecimal((line['quantity'] as TextEditingController).text)!,
+      await AppDb.instance.db.transaction((txn) async {
+        final productId = await txn.insert('products', {
+          'name': name.text.trim(),
+          'batch_qty': batchQty,
+          'selling_price': sellingPrice,
+          'packaging_cost': packagingAmount,
+          'labor_cost': laborAmount,
+          'overhead_cost': overheadAmount,
+          'waste_rate': wasteRate,
+          'commission_rate': commissionRate,
+          'target_margin_rate': targetMarginRate,
+          'created': today(),
         });
-      }
+        for (final line in lines) {
+          await txn.insert('recipe', {
+            'product_id': productId,
+            'material_id': line['materialId'],
+            'quantity': parseDecimal((line['quantity'] as TextEditingController).text)!,
+          });
+        }
+      });
       refreshData();
     } else if (ok == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
