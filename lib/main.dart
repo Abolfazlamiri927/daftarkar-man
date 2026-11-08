@@ -430,11 +430,12 @@ class _CostingPageState extends State<CostingPage> {
         builder: (dialogContext, setDialogState) {
           final price = parseAmount(controller.text);
           final validPrice = price != null && price > 0;
-          final profit = validPrice
-              ? price - cost.unitCost - price * cost.commissionRate
+          final scenario = validPrice
+              ? simulateSellingPrice(cost, price.toDouble())
               : null;
-          final margin = validPrice ? profit! / price : null;
-          final belowBreakEven = validPrice && price < cost.breakEvenPrice;
+          final profit = scenario?.unitProfit;
+          final margin = scenario?.marginRate;
+          final belowBreakEven = scenario?.belowBreakEven ?? false;
           return AlertDialog(
             title: Text('شبیه‌ساز قیمت: ${product['name']}'),
             content: SingleChildScrollView(
