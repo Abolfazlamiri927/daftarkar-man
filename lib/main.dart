@@ -415,6 +415,105 @@ class _CostingPageState extends State<CostingPage> {
     );
   }
 
+  Future<void> showPriceSimulator(Map<String, Object?> product) async {
+    final calculation = await calculateProduct(product);
+    if (!mounted) return;
+    final cost = calculation['breakdown'] as CostBreakdown;
+    final controller = TextEditingController(
+      text: (product['selling_price'] as num).toInt() > 0
+          ? (product['selling_price'] as num).toInt().toString()
+          : cost.targetPrice.ceil().toString(),
+    );
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final price = parseAmount(controller.text);
+          final validPrice = price != null && price > 0;
+          final profit = validPrice
+              ? price - cost.unitCost - price * cost.commissionRate
+              : null;
+          final margin = validPrice ? profit! / price : null;
+          final belowBreakEven = validPrice && price < cost.breakEvenPrice;
+          return AlertDialog(
+            title: Text('شبیه‌ساز قیمت: ${product['name']}'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('قیمت‌های مختلف را امتحان کن و قبل از تغییر قیمت فروش، سود واقعی را ببین. این محاسبه فعلاً چیزی را ذخیره نمی‌کند.'),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'قیمت فروش آزمایشی هر واحد (تومان)',
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  _line('بهای تمام‌شده هر واحد', cost.unitCost),
+                  _line('قیمت سربه‌سر', cost.breakEvenPrice),
+                  _line('قیمت لازم برای سود هدف', cost.targetPrice),
+                  const Divider(height: 22),
+                  if (validPrice) ...[
+                    _line('سود یا زیان هر واحد', profit!),
+                    _line('حاشیه سود', margin! * 100, suffix: '%'),
+                    Container(
+                      margin: const EdgeInsets.only(top: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: belowBreakEven
+                            ? Colors.red.withValues(alpha: 0.08)
+                            : Colors.green.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        belowBreakEven
+                            ? 'این قیمت زیان‌ده است. هزینه تولید و کارمزد فروش پوشش داده نمی‌شود.'
+                            : 'در این قیمت، به ازای هر واحد ${money(profit)} تومان سود باقی می‌ماند.',
+                        style: TextStyle(
+                          color: belowBreakEven ? Colors.red.shade800 : Colors.green.shade800,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ] else
+                    const Text('برای محاسبه، یک قیمت معتبر و بیشتر از صفر وارد کن.'),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('بستن'),
+              ),
+              FilledButton.icon(
+                onPressed: !validPrice
+                    ? null
+                    : () async {
+                        await AppDb.instance.db.update(
+                          'products',
+                          {'selling_price': price},
+                          where: 'id=?',
+                          whereArgs: [product['id']],
+                        );
+                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+                        refreshData();
+                      },
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('ثبت قیمت برای محصول'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    controller.dispose();
+  }
+
   Future<void> addProduct() async {
     final materials = await AppDb.instance.rows('materials');
     if (materials.isEmpty) {
@@ -638,6 +737,15 @@ class _CostingPageState extends State<CostingPage> {
                       SizedBox(width: 5),
                       Expanded(child: Text('حاشیه سود از هدف تعیین‌شده کمتر است.', style: TextStyle(color: Colors.deepOrange))),
                     ]),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => showPriceSimulator(product),
+                      icon: const Icon(Icons.calculate_outlined),
+                      label: const Text('شبیه‌سازی و ثبت قیمت فروش'),
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text('با تغییر قیمت مواد اولیه، این محاسبات به‌روز می‌شوند.', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
