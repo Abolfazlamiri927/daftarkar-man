@@ -597,32 +597,60 @@ class _CostingPageState extends State<CostingPage> {
       ],
     )));
     final batchQty = parseDecimal(batch.text);
-    final percent = (String value) => (parseDecimal(value) ?? 0) / 100;
+    double? percentage(String value) {
+      if (value.trim().isEmpty) return 0;
+      final parsed = parseDecimal(value);
+      if (parsed == null || !parsed.isFinite || parsed < 0 || parsed >= 100) return null;
+      return parsed / 100;
+    }
+    int? amountOrZero(String value) =>
+        value.trim().isEmpty ? 0 : parseAmount(value);
+    final wasteRate = percentage(waste.text);
+    final commissionRate = percentage(commission.text);
+    final targetMarginRate = percentage(target.text);
+    final packagingAmount = amountOrZero(packaging.text);
+    final laborAmount = amountOrZero(labor.text);
+    final overheadAmount = amountOrZero(overhead.text);
+    final sellingPrice = amountOrZero(selling.text);
     final validLines = lines.every((line) {
       final q = parseDecimal((line['quantity'] as TextEditingController).text);
-      return line['materialId'] != null && q != null && q > 0;
+      return line['materialId'] != null && q != null && q.isFinite && q > 0;
     });
-    if (ok == true && name.text.trim().isNotEmpty && batchQty != null && batchQty > 0 && validLines) {
+    final validForm = name.text.trim().isNotEmpty &&
+        batchQty != null && batchQty.isFinite && batchQty > 0 &&
+        validLines && wasteRate != null && commissionRate != null &&
+        targetMarginRate != null && commissionRate + targetMarginRate < 1 &&
+        packagingAmount != null && packagingAmount >= 0 &&
+        laborAmount != null && laborAmount >= 0 &&
+        overheadAmount != null && overheadAmount >= 0 &&
+        sellingPrice != null && sellingPrice >= 0;
+    if (ok == true && validForm) {
       final productId = await AppDb.instance.add('products', {
         'name': name.text.trim(),
         'batch_qty': batchQty,
-        'selling_price': parseAmount(selling.text) ?? 0,
-        'packaging_cost': parseAmount(packaging.text) ?? 0,
-        'labor_cost': parseAmount(labor.text) ?? 0,
-        'overhead_cost': parseAmount(overhead.text) ?? 0,
-        'waste_rate': percent(waste.text),
-        'commission_rate': percent(commission.text),
-        'target_margin_rate': percent(target.text),
+        'selling_price': sellingPrice,
+        'packaging_cost': packagingAmount,
+        'labor_cost': laborAmount,
+        'overhead_cost': overheadAmount,
+        'waste_rate': wasteRate,
+        'commission_rate': commissionRate,
+        'target_margin_rate': targetMarginRate,
         'created': today(),
       });
       for (final line in lines) {
         await AppDb.instance.add('recipe', {
           'product_id': productId,
           'material_id': line['materialId'],
-          'quantity': parseDecimal((line['quantity'] as TextEditingController).text) ?? 0,
+          'quantity': parseDecimal((line['quantity'] as TextEditingController).text)!,
         });
       }
       refreshData();
+    } else if (ok == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('اطلاعات معتبر نیست. مقدارها را بررسی کن؛ درصدها باید کمتر از ۱۰۰ باشند و مجموع کارمزد و سود هدف هم کمتر از ۱۰۰٪ باشد.'),
+        ),
+      );
     }
     for (final line in lines) {
       (line['quantity'] as TextEditingController).dispose();
