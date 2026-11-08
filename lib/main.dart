@@ -443,7 +443,7 @@ class _CostingPageState extends State<CostingPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('قیمت‌های مختلف را امتحان کن و قبل از تغییر قیمت فروش، سود واقعی را ببین. این محاسبه فعلاً چیزی را ذخیره نمی‌کند.'),
+                  const Text('قیمت‌های مختلف را امتحان کن و قبل از ثبت قیمت جدید، سود یا زیان هر واحد را بررسی کن.'),
                   const SizedBox(height: 14),
                   TextField(
                     controller: controller,
@@ -474,7 +474,7 @@ class _CostingPageState extends State<CostingPage> {
                       child: Text(
                         belowBreakEven
                             ? 'این قیمت زیان‌ده است. هزینه تولید و کارمزد فروش پوشش داده نمی‌شود.'
-                            : 'در این قیمت، به ازای هر واحد ${money(profit)} تومان سود باقی می‌ماند.',
+                            : 'در این قیمت، به ازای هر واحد ${money(profit!)} تومان سود باقی می‌ماند.',
                         style: TextStyle(
                           color: belowBreakEven ? Colors.red.shade800 : Colors.green.shade800,
                           fontWeight: FontWeight.w600,
