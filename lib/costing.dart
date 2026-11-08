@@ -43,6 +43,34 @@ class CostBreakdown {
   });
 }
 
+class PriceScenario {
+  final double sellingPrice;
+  final double unitProfit;
+  final double marginRate;
+  final bool belowBreakEven;
+
+  const PriceScenario({
+    required this.sellingPrice,
+    required this.unitProfit,
+    required this.marginRate,
+    required this.belowBreakEven,
+  });
+}
+
+PriceScenario simulateSellingPrice(CostBreakdown cost, double sellingPrice) {
+  if (!sellingPrice.isFinite || sellingPrice <= 0) {
+    throw ArgumentError.value(sellingPrice, 'sellingPrice', 'باید عددی معتبر و بیشتر از صفر باشد');
+  }
+  final profit = sellingPrice - cost.unitCost -
+      sellingPrice * cost.commissionRate;
+  return PriceScenario(
+    sellingPrice: sellingPrice,
+    unitProfit: profit,
+    marginRate: profit / sellingPrice,
+    belowBreakEven: sellingPrice < cost.breakEvenPrice,
+  );
+}
+
 class CostInput {
   final double batchQuantity;
   final List<CostLine> materials;
